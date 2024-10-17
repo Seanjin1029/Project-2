@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WebGazer.js Eye Tracking with PDF</title>
+    <!-- Include the WebGazer.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/webgazer/dist/webgazer.min.js"></script>
+    <style>
+        /* Style for the gaze dot */
+        #gazeDot {
+            position: absolute;
+            background-color: rgb(0, 0, 0);
+            border-radius: 50%;
+            width: 100px;
+            /* Reduced size */
+            height: 100px;
+            /* Reduced size */
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* Style for calibration points */
+        .calibration-point {
+            position: absolute;
+            background-color: blue;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            opacity: 0.6;
+            cursor: pointer;
+        }
+
+        /* Style for the PDF container */
+        #pdfContainer {
+            width: 100%;
+            height: 90vh;
+            display: none;
+            /* Hide until calibration is complete */
+        }
+    </style>
+</head>
+
+<body>
+    <p style="text-align: center">Important Website</p>
+    <p id="calibrationInstructions" style="text-align: center">You really need to read this. But first: Click on each
+        blue dot to calibrate the eye.</p>
+
+    <!-- Calibration points container -->
+    <div id="calibrationContainer"></div>
+
+    <!-- Gaze dot -->
+    <div id="gazeDot" style="display: none;"></div>
+
+    <!-- PDF Container -->
+    <div id="pdfContainer">
+        <!-- Embed your PDF here -->
+        <iframe src="https://drive.google.com/file/d/1D6MfD7LfVfoRTG9wZ3uJAuO74g1Qf0Pq/preview" width="80%" height="80%"
+            allow="autoplay" style="display: block; margin: 0 auto;"></iframe>
+    </div>
+
+    <!-- Initialize WebGazer.js -->
+    <script>
+        // Hide video feedback elements before starting WebGazer
+        webgazer.showVideo(true);
+        webgazer.showFaceOverlay(true);
+        webgazer.showFaceFeedbackBox(true);
+
+        // Calibration variables
+        var calibrationCount = 0;
+        var totalCalibrationPoints = 9; // Number of calibration points
+        var calibrationClicksPerPoint = 5; // Number of clicks per point required
+        var calibrationPoints = {};
+
+        // Function to create calibration points
+        function createCalibrationPoints() {
+            var container = document.getElementById('calibrationContainer');
+            var positions = [
+                { left: '10%', top: '10%' },
+                { left: '50%', top: '10%' },
+                { left: '90%', top: '10%' },
+                { left: '10%', top: '50%' },
+                { left: '50%', top: '50%' },
+                { left: '90%', top: '50%' },
+                { left: '10%', top: '90%' },
+                { left: '50%', top: '90%' },
+                { left: '90%', top: '90%' }
+            ];
+            positions.forEach(function (pos) {
+                var point = document.createElement('div');
+                point.className = 'calibration-point';
+                point.style.left = pos.left;
+                point.style.top = pos.top;
+                point.addEventListener('click', function () {
+                    calibrationClick(point);
+                });
+                container.appendChild(point);
+            });
+        }
+
+        // Function called when a calibration point is clicked
+        function calibrationClick(point) {
+            var id = point.style.left + '_' + point.style.top;
+            if (!calibrationPoints[id]) {
+                calibrationPoints[id] = 0;
+            }
+            calibrationPoints[id]++;
+            point.style.opacity = parseFloat(point.style.opacity) + 0.1;
+            if (calibrationPoints[id] >= calibrationClicksPerPoint) {
+                point.style.backgroundColor = 'green';
+                checkCalibrationCompletion();
+            }
+        }
+
+        // Check if calibration is complete
+        function checkCalibrationCompletion() {
+            var completedPoints = Object.values(calibrationPoints).filter(function (clicks) {
+                return clicks >= calibrationClicksPerPoint;
+            }).length;
+            if (completedPoints >= totalCalibrationPoints) {
+                // Calibration is complete
+                document.getElementById('calibrationContainer').style.display = 'none';
+                document.getElementById('calibrationInstructions').style.display = 'none'; // Hide the instructions
+                document.getElementById('gazeDot').style.display = 'block';
+                document.getElementById('pdfContainer').style.display = 'block';
+                beginEyeTracking();
+            }
+        }
+
+        function beginEyeTracking() {
+            // Variables for smoothing
+            var recentGazeData = [];
+            var maxDataPoints = 15; // Adjust for more or less smoothing
+
+            webgazer.setGazeListener(function (data, elapsedTime) {
+                if (data == null) return;
+
+                // Add current data point to the array
+                recentGazeData.push(data);
+
+                // Keep only the most recent data points
+                if (recentGazeData.length > maxDataPoints) {
+                    recentGazeData.shift();
+                }
+
+                // Calculate average gaze position
+                var avgX = 0;
+                var avgY = 0;
+                for (var i = 0; i < recentGazeData.length; i++) {
+                    avgX += recentGazeData[i].x;
+                    avgY += recentGazeData[i].y;
+                }
+                avgX /= recentGazeData.length;
+                avgY /= recentGazeData.length;
+
+                // Adjust for scroll offset if necessary
+                var scrollX = window.scrollX || window.pageXOffset;
+                var scrollY = window.scrollY || window.pageYOffset;
+
+                avgX = avgX - scrollX;
+                avgY = avgY - scrollY;
+
+                // Constrain the gaze dot within the viewport bounds
+                var viewportWidth = window.innerWidth;
+                var viewportHeight = window.innerHeight;
+
+                avgX = Math.max(0, Math.min(avgX, viewportWidth));
+                avgY = Math.max(0, Math.min(avgY, viewportHeight));
+
+                // Update the position of the gaze dot
+                var gazeDot = document.getElementById('gazeDot');
+                gazeDot.style.left = (avgX - gazeDot.offsetWidth / 2) + 'px';
+                gazeDot.style.top = (avgY - gazeDot.offsetHeight / 2) + 'px';
+            }).begin();
+        }
+
+        window.onload = function () {
+            createCalibrationPoints();
+            // Do not start WebGazer here; it will start after calibration
+        };
+    </script>
+</body>
+
+</html>
